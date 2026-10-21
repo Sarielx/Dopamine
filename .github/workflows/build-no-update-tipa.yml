@@ -1,0 +1,160 @@
+name: "Build Dopamine 3.0.11 (no-update .tipa)"
+
+# 用法：
+#   1. 新建一个 GitHub 仓库（public 或 private 均可），把本文件放到 .github/workflows/ 下
+#   2. 仓库页面 → Actions → 左侧选中本工作流 → Run workflow
+#   3. 约 10-20 分钟后，在本次运行的 Artifacts 里下载 Dopamine-3.0.11-no-update
+#
+# 说明：iOS 应用必须在 macOS + Xcode 环境下编译，本工作流直接复用
+# opa334/Dopamine 官方 CI 的构建配方，只额外加了一步「应用去更新补丁」。
+
+on:
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REF: "3.0.11"
+  UPSTREAM_REPO: "opa334/Dopamine"
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    env:
+      UPSTREAM: ${{ github.workspace }}/upstream
+      THEOS: ${{ github.workspace }}/upstream/theos
+
+    steps:
+      - name: Xcode Setup
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Checkout upstream at tag 3.0.11
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          submodules: recursive
+          path: upstream
+          fetch-depth: 1
+
+      # 硬校验：源码必须正好是 3.0.11 那个 commit，避免误用 3.0.12
+      - name: Verify source is exactly 3.0.11
+        working-directory: ${{ env.UPSTREAM }}
+        run: |
+          set -e
+          EXPECTED=448ff1a83d2bb807346f1f3d36332e4afbf9794a
+          ACTUAL=$(git rev-parse HEAD)
+          echo "HEAD=$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: 源码不是 3.0.11（期望 $EXPECTED）"
+            exit 1
+          fi
+          if ! grep -q "MARKETING_VERSION = 3.0.11;" Application/Dopamine.xcodeproj/project.pbxproj; then
+            echo "FAIL: MARKETING_VERSION 不是 3.0.11"
+            exit 1
+          fi
+          echo "OK: 正在构建 3.0.11 ($ACTUAL)"
+
+      # ---------------------------------------------------------------
+      # 去更新补丁：仅改动 2 个文件、3 处逻辑
+      #   DOUIManager.m            getLatestReleases  -> 直接返回空数组，不再请求 api.github.com
+      #   DOUIManager.m            environmentUpdateAvailable -> 返回 NO
+      #   DOMainViewController.m   删除启动时的更新探测，更新按钮永不出现
+      # ---------------------------------------------------------------
+      - name: Apply no-update patch
+        run: |
+          set -euo pipefail
+          echo 'ZGlmZiAtLWdpdCBhL0FwcGxpY2F0aW9uL0RvcGFtaW5lL1VJL0RPTWFpblZpZXdDb250cm9sbGVyLm0gYi9BcHBsaWNhdGlvbi9Eb3BhbWluZS9VSS9ET01haW5WaWV3Q29udHJvbGxlci5tCmluZGV4IDVjY2MwNjguLmJkOGE3ZDEgMTAwNjQ0Ci0tLSBhL0FwcGxpY2F0aW9uL0RvcGFtaW5lL1VJL0RPTWFpblZpZXdDb250cm9sbGVyLm0KKysrIGIvQXBwbGljYXRpb24vRG9wYW1pbmUvVUkvRE9NYWluVmlld0NvbnRyb2xsZXIubQpAQCAtMTU3LDIwICsxNTcsOSBAQAogICAgICAgICBbc2VsZi5qYWlsYnJlYWtCdG4uY2VudGVyWUFuY2hvciBjb25zdHJhaW50RXF1YWxUb0FuY2hvcjpidXR0b25QbGFjZUhvbGRlci5jZW50ZXJZQW5jaG9yXQogICAgIF0pXTsKIAotICAgIGRpc3BhdGNoX2FmdGVyKGRpc3BhdGNoX3RpbWUoRElTUEFUQ0hfVElNRV9OT1csIDAuMSAqIE5TRUNfUEVSX1NFQyksIGRpc3BhdGNoX2dldF9nbG9iYWxfcXVldWUoRElTUEFUQ0hfUVVFVUVfUFJJT1JJVFlfTE9XLCAwKSwgXnsKLSAgICAgICAgaWYgKFtbRE9VSU1hbmFnZXIgc2hhcmVkSW5zdGFuY2VdIGVudmlyb25tZW50VXBkYXRlQXZhaWxhYmxlXSkKLSAgICAgICAgewotICAgICAgICAgICAgZGlzcGF0Y2hfYXN5bmMoZGlzcGF0Y2hfZ2V0X21haW5fcXVldWUoKSwgXnsKLSAgICAgICAgICAgICAgICBbc2VsZiBzZXR1cFVwZGF0ZUF2YWlsYWJsZTpZRVNdOwotICAgICAgICAgICAgfSk7Ci0gICAgICAgIH0KLSAgICAgICAgZWxzZSBpZiAoW1tET1VJTWFuYWdlciBzaGFyZWRJbnN0YW5jZV0gaXNVcGRhdGVBdmFpbGFibGVdKQotICAgICAgICB7Ci0gICAgICAgICAgICBkaXNwYXRjaF9hc3luYyhkaXNwYXRjaF9nZXRfbWFpbl9xdWV1ZSgpLCBeewotICAgICAgICAgICAgICAgIFtzZWxmIHNldHVwVXBkYXRlQXZhaWxhYmxlOk5PXTsKLSAgICAgICAgICAgIH0pOwotICAgICAgICB9Ci0gICAgfSk7CisgICAgLy8gW05PLVVQREFURSBQQVRDSF0gVGhlIGxhdW5jaC10aW1lIHVwZGF0ZSBwcm9iZSBoYXMgYmVlbiByZW1vdmVkLCBzbyB0aGUKKyAgICAvLyAiVXBkYXRlIEF2YWlsYWJsZSIgYnV0dG9uIGlzIG5ldmVyIGNyZWF0ZWQgYW5kIERPVXBkYXRlVmlld0NvbnRyb2xsZXIgaXMKKyAgICAvLyB1bnJlYWNoYWJsZS4gTm90aGluZyBlbHNlIGluIHRoaXMgdmlldyBjb250cm9sbGVyIGlzIGFmZmVjdGVkLgogfQogCiAtIChOU1N0cmluZyAqKWphaWxicmVha0J1dHRvblRpdGxlCmRpZmYgLS1naXQgYS9BcHBsaWNhdGlvbi9Eb3BhbWluZS9VSS9ET1VJTWFuYWdlci5tIGIvQXBwbGljYXRpb24vRG9wYW1pbmUvVUkvRE9VSU1hbmFnZXIubQppbmRleCBhMmY2OWI0Li45N2UxY2UzIDEwMDY0NAotLS0gYS9BcHBsaWNhdGlvbi9Eb3BhbWluZS9VSS9ET1VJTWFuYWdlci5tCisrKyBiL0FwcGxpY2F0aW9uL0RvcGFtaW5lL1VJL0RPVUlNYW5hZ2VyLm0KQEAgLTY4LDMzICs2OCwyMSBAQAogCiAtIChOU0FycmF5ICopZ2V0TGF0ZXN0UmVsZWFzZXMKIHsKLSAgICBzdGF0aWMgZGlzcGF0Y2hfb25jZV90IG9uY2VUb2tlbjsKLSAgICBzdGF0aWMgTlNBcnJheSAqcmVsZWFzZXM7Ci0gICAgZGlzcGF0Y2hfb25jZSgmb25jZVRva2VuLCBeewotICAgICAgICBOU1VSTCAqdXJsID0gW05TVVJMIFVSTFdpdGhTdHJpbmc6QCJodHRwczovL2FwaS5naXRodWIuY29tL3JlcG9zL29wYTMzNC9Eb3BhbWluZS9yZWxlYXNlcyJdOwotICAgICAgICBOU0RhdGEgKmRhdGEgPSBbTlNEYXRhIGRhdGFXaXRoQ29udGVudHNPZlVSTDp1cmxdOwotICAgICAgICBpZiAoZGF0YSkgewotICAgICAgICAgICAgTlNFcnJvciAqZXJyb3I7Ci0gICAgICAgICAgICByZWxlYXNlcyA9IFtOU0pTT05TZXJpYWxpemF0aW9uIEpTT05PYmplY3RXaXRoRGF0YTpkYXRhIG9wdGlvbnM6a05pbE9wdGlvbnMgZXJyb3I6JmVycm9yXTsKLSAgICAgICAgICAgIGlmIChlcnJvcikKLSAgICAgICAgICAgIHsKLSAgICAgICAgICAgICAgICBvbmNlVG9rZW4gPSAwOwotICAgICAgICAgICAgICAgIHJlbGVhc2VzID0gQFtdOwotICAgICAgICAgICAgfQotICAgICAgICB9Ci0gICAgfSk7Ci0gICAgcmV0dXJuIHJlbGVhc2VzOworICAgIC8vIFtOTy1VUERBVEUgUEFUQ0hdIFVwZGF0ZSBjaGVja2luZyByZW1vdmVkIGZvciBhIHBpbm5lZCAzLjAuMTEgYnVpbGQuCisgICAgLy8gTm8gcmVxdWVzdCBpcyBldmVyIG1hZGUgdG8gYXBpLmdpdGh1Yi5jb20sIHNvIHRoZSBhcHAgY2FuIG5ldmVyIGxlYXJuCisgICAgLy8gYWJvdXQgYSBuZXdlciByZWxlYXNlLiBFdmVyeXRoaW5nIHRoYXQgZGVyaXZlcyBmcm9tIHRoaXMgbGlzdAorICAgIC8vIChpc1VwZGF0ZUF2YWlsYWJsZSwgZ2V0TGF0ZXN0UmVsZWFzZVRhZywgZ2V0VXBkYXRlc0luUmFuZ2UsCisgICAgLy8gbGF1bmNoZWRSZWxlYXNlTmVlZHNNYW51YWxVcGRhdGUpIHRoZXJlZm9yZSBkZWdyYWRlcyB0byAibm8gdXBkYXRlIi4KKyAgICByZXR1cm4gQFtdOwogfQogCiAtIChCT09MKWVudmlyb25tZW50VXBkYXRlQXZhaWxhYmxlCiB7Ci0gICAgaWYgKCFbW0RPRW52aXJvbm1lbnRNYW5hZ2VyIHNoYXJlZE1hbmFnZXJdIGphaWxicm9rZW5WZXJzaW9uXSkKLSAgICAgICAgcmV0dXJuIE5POwotCi0gICAgTlNTdHJpbmcgKmphaWxicm9rZW5WZXJzaW9uID0gW1tET0Vudmlyb25tZW50TWFuYWdlciBzaGFyZWRNYW5hZ2VyXSBqYWlsYnJva2VuVmVyc2lvbl07Ci0gICAgTlNTdHJpbmcgKmxhdW5jaGVkVmVyc2lvbiA9IFtzZWxmIGdldExhdW5jaGVkUmVsZWFzZVRhZ107Ci0gICAgCi0gICAgcmV0dXJuIFtsYXVuY2hlZFZlcnNpb24gbnVtZXJpY2FsVmVyc2lvblJlcHJlc2VudGF0aW9uXSA+IFtqYWlsYnJva2VuVmVyc2lvbiBudW1lcmljYWxWZXJzaW9uUmVwcmVzZW50YXRpb25dOworICAgIC8vIFtOTy1VUERBVEUgUEFUQ0hdIFN1cHByZXNzZWQgc28gdGhlICJVcGRhdGUgRW52aXJvbm1lbnQiIHByb21wdCBjYW4gbmV2ZXIKKyAgICAvLyBhcHBlYXIuIFRoaXMgY29tcGFyaXNvbiBpcyBsb2NhbCAoamFpbGJyb2tlbiBiYXNlYmluIHZzLiBhcHAgdmVyc2lvbikgYW5kCisgICAgLy8gZG9lcyBub3QgdG91Y2ggdGhlIG5ldHdvcms7IGl0IGlzIGRpc2FibGVkIG9ubHkgc28gdGhhdCBhIHBpbm5lZCBidWlsZAorICAgIC8vIG5ldmVyIG5hZ3MgYWJvdXQgdXBkYXRpbmcuIFJldmVydCB0aGlzIG1ldGhvZCB0byByZXN0b3JlIHRoZSBvcmlnaW5hbC4KKyAgICByZXR1cm4gTk87CiB9CiAKIC0gKGJvb2wpbGF1bmNoZWRSZWxlYXNlTmVlZHNNYW51YWxVcGRhdGUK' | base64 -d > /tmp/no-update.patch
+          cd "$UPSTREAM"
+          git apply -v /tmp/no-update.patch
+          echo "--- patched OK ---"
+          grep -n "NO-UPDATE PATCH" Application/Dopamine/UI/DOUIManager.m Application/Dopamine/UI/DOMainViewController.m
+
+      - name: Install Procursus (ldid, findutils, sed, coreutils, make)
+        uses: dhinakg/procursus-action@main
+        with:
+          packages: ldid findutils sed coreutils make
+
+      - name: Install better GNU Make
+        run: |
+          brew install make
+          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Install THEOS
+        working-directory: ${{ env.UPSTREAM }}
+        run: |
+          set -x
+          export BASEDIR="$(pwd)"
+          export THEOS="${BASEDIR}/theos"
+          mkdir -p $THEOS
+          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos > install-theos.sh
+          gsed -E "/^\s*get_theos\s*$/,+1 s/^(\s*)(get_sdks)\s*$/\1mkdir -p \${THEOS}\/sdks\n\1touch \${THEOS}\/sdks\/sdk\n\1\2/g" -i install-theos.sh
+          bash install-theos.sh
+          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz --output $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
+          gunzip $THEOS/sdks/iPhoneOS16.5.sdk.tar.xz
+          tar -xf $THEOS/sdks/iPhoneOS16.5.sdk.tar -C $THEOS/sdks
+          rm $THEOS/sdks/iPhoneOS16.5.sdk.tar
+
+      - name: Build and install trustcache
+        run: |
+          set -x
+          git clone https://github.com/CRKatri/trustcache
+          cd trustcache
+          export CFLAGS="$CFLAGS -I$(brew --prefix openssl)/include -arch arm64"
+          export LDFLAGS="$LDFLAGS -L$(brew --prefix openssl)/lib -arch arm64"
+          gmake -j$(sysctl -n hw.logicalcpu) OPENSSL=1
+          sudo cp trustcache /opt/procursus/bin/
+
+      - name: Install libarchive
+        run: brew install libarchive
+
+      - name: Download bootstraps
+        working-directory: ${{ env.UPSTREAM }}/Application/Dopamine/Resources
+        run: ./download_bootstraps.sh
+
+      - name: Build Dopamine
+        working-directory: ${{ env.UPSTREAM }}
+        run: |
+          set -x
+          gmake -j$(sysctl -n hw.logicalcpu)
+
+      - name: Verify no-update patch is in the binary
+        working-directory: ${{ env.UPSTREAM }}
+        run: |
+          set -e
+          BIN=Application/build/Build/Products/Debug-iphoneos/Dopamine.app/Dopamine
+          test -f "$BIN" || { echo "binary not found"; exit 1; }
+          if strings "$BIN" | grep -q "api.github.com/repos/opa334/Dopamine"; then
+            echo "FAIL: update endpoint still present in binary"
+            exit 1
+          fi
+          echo "OK: update endpoint removed from binary"
+          APP=Application/build/Build/Products/Debug-iphoneos/Dopamine.app
+          VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          echo "CFBundleShortVersionString=$VER"
+          if [ "$VER" != "3.0.11" ]; then
+            echo "FAIL: 产物版本是 $VER，不是 3.0.11"
+            exit 1
+          fi
+          echo "OK: 产物确认为 3.0.11"
+
+      - name: Collect .tipa
+        working-directory: ${{ env.UPSTREAM }}
+        run: |
+          set -e
+          ls -la Application/
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp Application/Dopamine.tipa "$GITHUB_WORKSPACE/out/Dopamine-3.0.11-no-update.tipa"
+          cd "$GITHUB_WORKSPACE/out"
+          shasum -a 256 Dopamine-3.0.11-no-update.tipa | tee sha256.txt
+          unzip -l Dopamine-3.0.11-no-update.tipa | head -20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dopamine-3.0.11-no-update
+          path: |
+            ${{ github.workspace }}/out/Dopamine-3.0.11-no-update.tipa
+            ${{ github.workspace }}/out/sha256.txt
+          if-no-files-found: error
