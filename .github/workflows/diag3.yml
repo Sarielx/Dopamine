@@ -1,0 +1,17 @@
+name: diag3
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: macos-14
+    steps:
+      - name: list xcodes
+        run: ls -1 /Applications | grep -i xcode
+      - name: fileport in iOS SDKs
+        run: |
+          for sdk in /Applications/Xcode*.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/*.sdk; do
+            echo "== $sdk"
+            if [ -f "$sdk/usr/include/sys/fileport.h" ]; then echo "   HAS fileport.h"; else echo "   NO fileport.h"; fi
+          done
+      - name: fileport anywhere in Xcode
+        run: find /Applications/Xcode.app/Contents/Developer/Platforms -name "fileport.h" 2>/dev/null | head -10
