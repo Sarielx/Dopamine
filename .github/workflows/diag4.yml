@@ -5,13 +5,8 @@ jobs:
   probe:
     runs-on: macos-latest
     steps:
-      - name: find CFBase.h and constants
+      - name: dump CF version constants
         run: |
-          set -x
-          SDK=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk
-          find "$SDK" -name "CFBase.h" 2>/dev/null
-          echo "--- grep constants ---"
-          for f in $(find "$SDK" -name "CFBase.h" 2>/dev/null); do
-            echo "== $f"
-            grep -E "kCFCore(Foundation)?VersionNumber_i(Phone)?OS_1[0-9]_0" "$f" || echo "  (none)"
-          done
+          F=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks/CoreFoundation.framework/Headers/CFBase.h
+          echo "=== all VersionNumber lines ==="
+          grep -n "VersionNumber" "$F" | head -60
