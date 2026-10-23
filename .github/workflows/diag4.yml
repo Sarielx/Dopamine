@@ -5,8 +5,7 @@ jobs:
   probe:
     runs-on: macos-latest
     steps:
-      - name: dump CF version constants
+      - name: iPhoneOS CF constants
         run: |
           F=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks/CoreFoundation.framework/Headers/CFBase.h
-          echo "=== all VersionNumber lines ==="
-          grep -n "VersionNumber" "$F" | head -60
+          grep -E "iPhoneOS|IPHONEOS" "$F"
